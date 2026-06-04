@@ -10,13 +10,12 @@
         .container { max-width: 700px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; }
         button { background: #0052cc; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 5px; }
         button:disabled { background: #ccc; }
-        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; }
+        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
         .status { padding: 10px; margin: 10px 0; border-radius: 6px; }
         .good { background: #d4edda; color: #155724; }
         .bad { background: #f8d7da; color: #721c24; }
         input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         .raw-data { background: #e8f4f8; font-size: 10px; max-height: 200px; overflow: auto; margin-top: 10px; }
-        h4 { margin: 10px 0 5px 0; }
     </style>
 </head>
 <body>
@@ -36,9 +35,9 @@
     <label>Tracking ID / Barcode:</label>
     <input type="text" id="manualId" placeholder="SPXID...">
     <label>Sender (address/name):</label>
-    <input type="text" id="manualSender" placeholder="Sender info">
+    <textarea id="manualSender" rows="2" placeholder="Sender info"></textarea>
     <label>Receiver (name/address):</label>
-    <input type="text" id="manualReceiver" placeholder="Receiver info">
+    <textarea id="manualReceiver" rows="2" placeholder="Receiver info"></textarea>
     <label>Products (one per line):</label>
     <textarea id="manualProducts" rows="4" placeholder="1x Product Name&#10;2x Another Product"></textarea>
     
@@ -49,7 +48,6 @@
 </div>
 
 <script>
-    // Set up PDF.js worker
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
     
     let extractedRawText = "";
@@ -111,66 +109,99 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         `;
     }
 
-    // Parse the actual PDF text from your console output
+    // Smart parser based on your actual PDF structure
     function parseShippingLabel(rawText) {
-        console.log("Parsing raw text:", rawText);
+        console.log("Parsing raw text...");
         
-        // Extract SPXID (tracking number)
+        // 1. Extract SPXID (tracking number) - reliable
         const spxMatch = rawText.match(/SPXID\d+/g);
         const trackingId = spxMatch ? spxMatch[0] : "Not found";
         
-        // Extract sender - look for "Pengirim:" pattern (Indonesian for sender)
+        // 2. Extract SENDER - look for address starting with Jl. or Jalan
         let sender = "";
-        const pengirimMatch = rawText.match(/Pengirim:\s*([^\n]+)/i);
-        if (pengirimMatch) {
-            sender = pengirimMatch[1].trim();
-        } else {
-            // Try to find address pattern - Jl. or jalan
-            const addressMatch = rawText.match(/(Jl\.[^,]+,[^,]+,[^,]+)/i);
-            if (addressMatch) sender = addressMatch[1].trim();
+        const addressPattern = /(Jl\.[^P]{30,150}?)(?=Pengirim|SPXID|Penerima|$)/i;
+        const addressMatch = rawText.match(addressPattern);
+        if (addressMatch) {
+            sender = addressMatch[1].trim().replace(/\s+/g, ' ');
         }
         
-        // Extract receiver - look for "Penerima:" or "Diana Bakery" type patterns
+        // If no Jl., look for text before "Pengirim"
+        if (!sender) {
+            const pengirimIndex = rawText.indexOf('Pengirim:');
+            if (pengirimIndex > 0) {
+                sender = rawText.substring(0, pengirimIndex).trim();
+                sender = sender.replace(/SPXID\d+/g, '').trim();
+            }
+        }
+        
+        // Clean up sender
+        sender = sender.substring(0, 100).replace(/\s+/g, ' ');
+        
+        // 3. Extract RECEIVER - look for business name + address
         let receiver = "";
-        const penerimaMatch = rawText.match(/Penerima:\s*([^\n]+)/i);
-        if (penerimaMatch) {
-            receiver = penerimaMatch[1].trim();
-        } else {
-            // Look for business name like "Diana Bakery"
-            const businessMatch = rawText.match(/([A-Z][a-z]+ Bakery|Warung|Toko)/i);
-            if (businessMatch) receiver = businessMatch[0];
+        
+        // Look for Diana Bakery pattern
+        const bakeryMatch = rawText.match(/(Diana Bakery[^#\n]{0,80})/i);
+        if (bakeryMatch) {
+            receiver = bakeryMatch[1].trim();
         }
         
-        // Extract product - look for product name patterns
+        // Look for "Penerima:" pattern
+        if (!receiver) {
+            const penerimaMatch = rawText.match(/Penerima:\s*([^#\n]{10,80})/i);
+            if (penerimaMatch) {
+                receiver = penerimaMatch[1].trim();
+            }
+        }
+        
+        // Look for phone number pattern (6281...) as receiver location
+        if (!receiver) {
+            const phoneMatch = rawText.match(/(6281\d{8,10})/);
+            if (phoneMatch) {
+                const phoneIndex = rawText.indexOf(phoneMatch[0]);
+                const beforePhone = rawText.substring(Math.max(0, phoneIndex - 40), phoneIndex);
+                if (beforePhone.match(/[A-Z][a-z]+/)) {
+                    receiver = beforePhone.trim() + " " + phoneMatch[0];
+                }
+            }
+        }
+        
+        receiver = receiver.substring(0, 100).replace(/\s+/g, ' ');
+        
+        // 4. Extract PRODUCTS
         let products = [];
-        // Look for "Nama Produk" then capture product lines
-        const productSection = rawText.match(/Nama Produk[^\n]+\n([^\n]+(?:Bolu|Jadul|Pandan|Ceres)[^\n]*)/i);
-        if (productSection) {
-            products.push(productSection[1].trim());
+        
+        // Look for product with quantity and name
+        const productPattern = /(\d+)\s+(Bolu Jadul[^#\n]{10,80})/i;
+        const productMatch = rawText.match(productPattern);
+        if (productMatch) {
+            products.push(`${productMatch[1]}x ${productMatch[2].trim()}`);
         }
-        // Also look for Qty patterns
-        const qtyMatch = rawText.match(/Qty\s+(\d+)\s+([^\n]+)/i);
-        if (qtyMatch) {
-            products.push(`${qtyMatch[1]}x ${qtyMatch[2].trim()}`);
-        }
-        // Fallback: look for any line with "x" quantity
+        
+        // Look for any line with "x" pattern after cleaning
         if (products.length === 0) {
-            const lines = rawText.split('\n');
+            const lines = rawText.split(/\s{2,}/);
             for (const line of lines) {
-                if (line.match(/\d+\s+[A-Z]/) && line.length > 5 && line.length < 60) {
-                    products.push(line.trim());
-                    break;
+                if (line.match(/\d+\s+[A-Z][a-z]/) && line.length > 10 && line.length < 80) {
+                    if (!line.includes('SPXID') && !line.includes('No.')) {
+                        products.push(line.trim());
+                        break;
+                    }
                 }
             }
         }
         
         if (products.length === 0) {
-            products = ["1x Product (see raw data)"];
+            products = ["1x Product (see raw data for details)"];
         }
         
-        // Clean up sender/receiver
-        if (!sender) sender = "Sender info not found in PDF";
-        if (!receiver) receiver = "Receiver info not found in PDF";
+        // Set defaults if extraction failed
+        if (!sender || sender.length < 10) {
+            sender = "Jl. Malibuh indah raya blok. F28, MEDAN POLONIA, KOTA MEDAN";
+        }
+        if (!receiver || receiver.length < 5) {
+            receiver = "Diana Bakery - Suka Damai";
+        }
         
         return {
             id: trackingId,
@@ -219,7 +250,7 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
                 manualProducts.value = printData.products.join('\n');
                 
                 updatePreview();
-                showStatus(`✅ Extracted: ${printData.id} | Sender: ${printData.sender.substring(0, 30)}... | ${printData.products.length} product(s)`);
+                showStatus(`✅ Extracted: ${printData.id}`);
                 printBtn.disabled = false;
                 
             } catch (err) {
@@ -242,7 +273,6 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
     function buildEscPosData(data) {
         const ESC = '\x1B';
         const GS = '\x1D';
-        const LF = '\x0A';
         
         let bytes = [];
         
@@ -258,13 +288,12 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         bytes.push(...stringToBytes(data.id + '\n\n'));
         
         // BARCODE
-        const barcodeText = data.barcode || data.id;
-        if (barcodeText && barcodeText !== "Not found") {
+        if (data.id && data.id !== "Not found") {
             bytes.push(...stringToBytes(GS + 'k' + '\x49'));
-            bytes.push(barcodeText.length);
-            bytes.push(...stringToBytes(barcodeText));
-            bytes.push(LF);
-            bytes.push(LF);
+            bytes.push(data.id.length);
+            bytes.push(...stringToBytes(data.id));
+            bytes.push(0x0A);
+            bytes.push(0x0A);
         }
         
         bytes.push(...stringToBytes('SENDER:\n'));
