@@ -10,11 +10,13 @@
         .container { max-width: 700px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; }
         button { background: #0052cc; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 5px; }
         button:disabled { background: #ccc; }
-        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
+        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; }
         .status { padding: 10px; margin: 10px 0; border-radius: 6px; }
         .good { background: #d4edda; color: #155724; }
         .bad { background: #f8d7da; color: #721c24; }
-        input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+        input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .raw-data { background: #e8f4f8; font-size: 10px; max-height: 200px; overflow: auto; margin-top: 10px; }
+        h4 { margin: 10px 0 5px 0; }
     </style>
 </head>
 <body>
@@ -22,41 +24,49 @@
     <h2>📦 58mm Label Printer</h2>
     
     <input type="file" id="fileInput" accept=".pdf">
-    <button id="extractBtn">Extract from PDF</button>
-    <button id="printBtn" disabled>Print to Bluetooth Printer</button>
+    <button id="extractBtn">🔍 Extract from PDF</button>
+    <button id="printBtn" disabled>🖨️ Print to Bluetooth Printer</button>
     
     <div id="status"></div>
     
-    <h3>Data that will print:</h3>
+    <h3>📄 Extracted Data (will print this):</h3>
     <pre id="preview">No data yet...</pre>
     
-    <h3>Manual override (edit if needed):</h3>
+    <h3>✏️ Manual Edit (changes print output):</h3>
     <label>Tracking ID / Barcode:</label>
-    <input type="text" id="manualId" placeholder="SPXID069572536186">
-    <label>Sender:</label>
-    <input type="text" id="manualSender" placeholder="Sender">
-    <label>Receiver:</label>
-    <input type="text" id="manualReceiver" placeholder="Receiver">
+    <input type="text" id="manualId" placeholder="SPXID...">
+    <label>Sender (address/name):</label>
+    <input type="text" id="manualSender" placeholder="Sender info">
+    <label>Receiver (name/address):</label>
+    <input type="text" id="manualReceiver" placeholder="Receiver info">
     <label>Products (one per line):</label>
-    <textarea id="manualProducts" rows="3" placeholder="1x Product A&#10;2x Product B"></textarea>
+    <textarea id="manualProducts" rows="4" placeholder="1x Product Name&#10;2x Another Product"></textarea>
+    
+    <details>
+        <summary>🔧 Debug: Raw extracted text</summary>
+        <pre id="rawText" class="raw-data"></pre>
+    </details>
 </div>
 
 <script>
-    // Current print data
+    // Set up PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    
+    let extractedRawText = "";
     let printData = {
-        id: null,
-        barcode: null,
-        sender: null,
-        receiver: null,
+        id: "",
+        barcode: "",
+        sender: "",
+        receiver: "",
         products: []
     };
 
-    // DOM elements
     const fileInput = document.getElementById('fileInput');
     const extractBtn = document.getElementById('extractBtn');
     const printBtn = document.getElementById('printBtn');
     const statusDiv = document.getElementById('status');
     const previewDiv = document.getElementById('preview');
+    const rawTextDiv = document.getElementById('rawText');
     const manualId = document.getElementById('manualId');
     const manualSender = document.getElementById('manualSender');
     const manualReceiver = document.getElementById('manualReceiver');
@@ -67,9 +77,7 @@
     }
 
     function updatePreview() {
-        // Get current data (from manual inputs if they exist)
         const id = manualId.value || printData.id || 'Not set';
-        const barcode = manualId.value || printData.barcode || 'Not set';
         const sender = manualSender.value || printData.sender || 'Not set';
         const receiver = manualReceiver.value || printData.receiver || 'Not set';
         let products = [];
@@ -86,25 +94,92 @@
 ║           SHIPPING LABEL (58mm)            ║
 ╠════════════════════════════════════════════╣
 ║ TRACKING ID: ${id.padEnd(35)}║
-║ BARCODE #:   ${barcode.padEnd(35)}║
+║ BARCODE #:   ${id.padEnd(35)}║
 ╠════════════════════════════════════════════╣
-║ SENDER:      ${sender.substring(0, 35).padEnd(35)}║
-║ RECEIVER:    ${receiver.substring(0, 35).padEnd(35)}║
+║ SENDER:                                    ║
+║ ${sender.substring(0, 38).padEnd(38)}║
+╠════════════════════════════════════════════╣
+║ RECEIVER:                                  ║
+║ ${receiver.substring(0, 38).padEnd(38)}║
 ╠════════════════════════════════════════════╣
 ║ PRODUCTS:                                  ║
 ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
 ╚════════════════════════════════════════════╝
 
-→ Barcode will be printed as scannable CODE128
-→ Printer will auto-cut after printing
+✅ Barcode will print as scannable CODE128
+✅ Printer will auto-cut after printing
         `;
     }
 
-    // Listen to manual input changes
-    manualId.addEventListener('input', updatePreview);
-    manualSender.addEventListener('input', updatePreview);
-    manualReceiver.addEventListener('input', updatePreview);
-    manualProducts.addEventListener('input', updatePreview);
+    // Parse the actual PDF text from your console output
+    function parseShippingLabel(rawText) {
+        console.log("Parsing raw text:", rawText);
+        
+        // Extract SPXID (tracking number)
+        const spxMatch = rawText.match(/SPXID\d+/g);
+        const trackingId = spxMatch ? spxMatch[0] : "Not found";
+        
+        // Extract sender - look for "Pengirim:" pattern (Indonesian for sender)
+        let sender = "";
+        const pengirimMatch = rawText.match(/Pengirim:\s*([^\n]+)/i);
+        if (pengirimMatch) {
+            sender = pengirimMatch[1].trim();
+        } else {
+            // Try to find address pattern - Jl. or jalan
+            const addressMatch = rawText.match(/(Jl\.[^,]+,[^,]+,[^,]+)/i);
+            if (addressMatch) sender = addressMatch[1].trim();
+        }
+        
+        // Extract receiver - look for "Penerima:" or "Diana Bakery" type patterns
+        let receiver = "";
+        const penerimaMatch = rawText.match(/Penerima:\s*([^\n]+)/i);
+        if (penerimaMatch) {
+            receiver = penerimaMatch[1].trim();
+        } else {
+            // Look for business name like "Diana Bakery"
+            const businessMatch = rawText.match(/([A-Z][a-z]+ Bakery|Warung|Toko)/i);
+            if (businessMatch) receiver = businessMatch[0];
+        }
+        
+        // Extract product - look for product name patterns
+        let products = [];
+        // Look for "Nama Produk" then capture product lines
+        const productSection = rawText.match(/Nama Produk[^\n]+\n([^\n]+(?:Bolu|Jadul|Pandan|Ceres)[^\n]*)/i);
+        if (productSection) {
+            products.push(productSection[1].trim());
+        }
+        // Also look for Qty patterns
+        const qtyMatch = rawText.match(/Qty\s+(\d+)\s+([^\n]+)/i);
+        if (qtyMatch) {
+            products.push(`${qtyMatch[1]}x ${qtyMatch[2].trim()}`);
+        }
+        // Fallback: look for any line with "x" quantity
+        if (products.length === 0) {
+            const lines = rawText.split('\n');
+            for (const line of lines) {
+                if (line.match(/\d+\s+[A-Z]/) && line.length > 5 && line.length < 60) {
+                    products.push(line.trim());
+                    break;
+                }
+            }
+        }
+        
+        if (products.length === 0) {
+            products = ["1x Product (see raw data)"];
+        }
+        
+        // Clean up sender/receiver
+        if (!sender) sender = "Sender info not found in PDF";
+        if (!receiver) receiver = "Receiver info not found in PDF";
+        
+        return {
+            id: trackingId,
+            barcode: trackingId,
+            sender: sender,
+            receiver: receiver,
+            products: products
+        };
+    }
 
     // Extract from PDF
     extractBtn.onclick = async () => {
@@ -126,40 +201,30 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
                     const page = await pdf.getPage(i);
                     const text = await page.getTextContent();
                     const strings = text.items.map(item => item.str);
-                    fullText += strings.join(' ') + " ";
+                    fullText += strings.join(' ') + "\n";
                 }
                 
-                console.log("Raw PDF text:", fullText);
+                extractedRawText = fullText;
+                rawTextDiv.innerText = extractedRawText.substring(0, 2000);
                 
-                // Extract data using patterns
-                const spxMatch = fullText.match(/SPXID\d+/i);
-                const idMatch = fullText.match(/\b(\d{1,2}-\d{1,2})\b/);
-                const longMatch = fullText.match(/\b\d{15,18}\b/);
+                console.log("Full extracted text:", extractedRawText);
                 
-                let trackingId = null;
-                if (spxMatch) trackingId = spxMatch[0];
-                else if (longMatch) trackingId = longMatch[0];
-                else if (idMatch) trackingId = idMatch[0];
-                
-                // Set the data
-                printData.id = trackingId || "Not found";
-                printData.barcode = trackingId || "Not found";
-                printData.sender = "Extracted from PDF - Sender info";
-                printData.receiver = "Extracted from PDF - Receiver info";
-                printData.products = ["1x Product from label"];
+                // Parse the actual PDF content
+                printData = parseShippingLabel(extractedRawText);
                 
                 // Auto-fill manual inputs
-                if (trackingId) manualId.value = trackingId;
+                manualId.value = printData.id;
                 manualSender.value = printData.sender;
                 manualReceiver.value = printData.receiver;
                 manualProducts.value = printData.products.join('\n');
                 
                 updatePreview();
-                showStatus(`✅ Extracted: ${trackingId || 'No ID found'}`);
+                showStatus(`✅ Extracted: ${printData.id} | Sender: ${printData.sender.substring(0, 30)}... | ${printData.products.length} product(s)`);
                 printBtn.disabled = false;
                 
             } catch (err) {
                 showStatus("PDF parse error: " + err.message, true);
+                console.error(err);
             }
         };
         reader.readAsArrayBuffer(file);
@@ -181,25 +246,19 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         
         let bytes = [];
         
-        // Init printer
         bytes.push(...stringToBytes(ESC + '@'));
-        
-        // Center align, double size title
         bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
         bytes.push(...stringToBytes(ESC + '!' + '\x20'));
         bytes.push(...stringToBytes('SHIPPING LABEL\n'));
-        
-        // Normal text, left align
         bytes.push(...stringToBytes(ESC + '!' + '\x00'));
         bytes.push(...stringToBytes(ESC + 'a' + '\x00'));
         bytes.push(...stringToBytes('========================\n'));
         
-        // Tracking ID
         bytes.push(...stringToBytes('\nTRACKING ID:\n'));
         bytes.push(...stringToBytes(data.id + '\n\n'));
         
-        // BARCODE - Using GS k for Code128
-        const barcodeText = data.barcode;
+        // BARCODE
+        const barcodeText = data.barcode || data.id;
         if (barcodeText && barcodeText !== "Not found") {
             bytes.push(...stringToBytes(GS + 'k' + '\x49'));
             bytes.push(barcodeText.length);
@@ -208,21 +267,17 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
             bytes.push(LF);
         }
         
-        // Sender
         bytes.push(...stringToBytes('SENDER:\n'));
         bytes.push(...stringToBytes(data.sender + '\n\n'));
         
-        // Receiver
         bytes.push(...stringToBytes('RECEIVER:\n'));
         bytes.push(...stringToBytes(data.receiver + '\n\n'));
         
-        // Products
         bytes.push(...stringToBytes('PRODUCTS:\n'));
         for (const p of data.products) {
             bytes.push(...stringToBytes('  ' + p + '\n'));
         }
         
-        // Footer and cut
         bytes.push(...stringToBytes('\n'));
         bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
         bytes.push(...stringToBytes('========================\n'));
@@ -232,7 +287,6 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
     }
 
     async function printToBluetooth(dataBytes) {
-        // Request printer
         const device = await navigator.bluetooth.requestDevice({
             acceptAllDevices: true,
             optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
@@ -241,7 +295,6 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
         
-        // Find write characteristic
         let characteristic = null;
         const chars = await service.getCharacteristics();
         for (const char of chars) {
@@ -253,14 +306,12 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         
         if (!characteristic) throw new Error("No write characteristic");
         
-        // Send in chunks
         for (let i = 0; i < dataBytes.length; i += 20) {
             const chunk = dataBytes.slice(i, i + 20);
             await characteristic.writeValue(chunk);
             await new Promise(r => setTimeout(r, 30));
         }
         
-        // Disconnect
         setTimeout(() => {
             if (device.gatt.connected) device.gatt.disconnect();
         }, 1000);
@@ -272,7 +323,6 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
             return;
         }
         
-        // Get current data from manual inputs
         const dataToPrint = {
             id: manualId.value || "NO_ID",
             barcode: manualId.value || "NO_ID",
@@ -296,9 +346,8 @@ ${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
         }
     };
     
-    // Check support
     if (!navigator.bluetooth) {
-        showStatus("⚠️ Use Chrome browser for Bluetooth printing", true);
+        showStatus("⚠️ Use Chrome browser on Android for Bluetooth printing", true);
         printBtn.disabled = true;
     }
     
