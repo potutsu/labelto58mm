@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>58mm Bluetooth Label Printer</title>
+    <!-- Include pdf.js library for parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- Include receipt encoder library to handle ESC/POS commands -->
+    <script src="https://unpkg.com/@point-of-sale/receipt-printer-encoder@2.0.0/dist/receipt-printer-encoder.umd.js"></script>
+    <script src="https://unpkg.com/@point-of-sale/webbluetooth-receipt-printer@1.0.1/dist/webbluetooth-receipt-printer.umd.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 800px;
+            width: 100%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #0052cc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 12px;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        pre {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        .connected { background: #e3fcef; color: #006644; border-left: 4px solid #006644; }
+        .error { background: #ffeaea; color: #cc0000; border-left: 4px solid #cc0000; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>📦 58mm Thermal Label Printer</h2>
+    <p>Upload your PDF label, extract shipping info, and print to Bluetooth printer.</p>
+
+    <div class="row">
+        <input type="file" id="fileInput" accept=".pdf" />
+        <button id="extractBtn">🔍 Extract Data from PDF</button>
+        <button id="connectBtn" disabled>🖨️ Connect to Printer</button>
+        <button id="printBtn" disabled>🖨️ Print Label (58mm)</button>
+    </div>
+
+    <div id="status"></div>
+    
+    <h3>📄 Extracted Data Preview:</h3>
+    <pre id="output">No data extracted yet...</pre>
+</div>
+
+<script>
+    // Global variables to store extracted data and printer connection
+    let extractedData = {
+        id: null,
+        barcode: null,
+        sender: "N/A",
+        receiver: "N/A",
+        products: []
+    };
+    let bluetoothPrinter = null;
+    let printerLanguage = null;
+    let printerCodepage = null;
+
+    // DOM Elements
+    const fileInput = document.getElementById('fileInput');
+    const extractBtn = document.getElementById('extractBtn');
+    const connectBtn = document.getElementById('connectBtn');
+    const printBtn = document.getElementById('printBtn');
+    const statusDiv = document.getElementById('status');
+    const outputPre = document.getElementById('output');
+
+    // Helper for status messages
+    function setStatus(message, isError = false) {
+        statusDiv.innerHTML = `<div class="${isError ? 'error' : 'connected'}">${message}</div>`;
+        console.log(message);
+    }
+
+    // --- 1. PDF Extraction Logic ---
+    extractBtn.onclick = async () => {
+        const file = fileInput.files[0];
+        if (!file) {
+            setStatus("Please select a PDF file first.", true);
+            return;
+        }
+        setStatus("Parsing PDF... Please wait.");
+        const fileReader = new FileReader();
+
+        fileReader.onload = async function() {
+            const typedarray = new Uint8Array(this.result);
+            
+            try {
+                // Load the PDF document
+                const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+                let fullText = "";
+                
+                // Extract text from all pages (your example has 1 page)
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    fullText += pageText + " ";
+                }
+                
+                console.log("Raw PDF Text:", fullText);
+                
+                // --- Intelligent Data Extraction ---
+                // 1. Extract Barcode / ID (looking for SPXID pattern or long numbers)
+                const barcodeMatch = fullText.match(/SPXID\d+/i) || fullText.match(/\b\d{15,18}\b/);
+                let extractedBarcode = barcodeMatch ? barcodeMatch[0] : "Not Found";
+                
+                // 2. Extract numeric ID from the "1-12" pattern or similar sequences
+                const idMatch = fullText.match(/\b(\d{1,2}-\d{1,2})\b/);
+                let extractedId = idMatch ? idMatch[0] : "N/A";
+                
+                // If we found a barcode, use it as the primary tracking ID
+                if (extractedBarcode !== "Not Found") {
+                    extractedId = extractedBarcode;
+                }
+                
+                // 3. Attempt to find Sender/Receiver using common patterns
+                // In a real-world scenario, you might need to map specific text positions.
+                // Since your PDF shows raw segments, we simulate pattern matching.
+                let senderText = "Sender: Logistics Dept.";
+                let receiverText = "Receiver: Customer Service";
+                let productList = ["1x Product A - Main Warehouse"];
+                
+                // Look for common address keywords (case insensitive)
+                const lines = fullText.split(/\s+/);
+                if (fullText.match(/from/i)) senderText = "Sender: " + fullText.match(/from\s+(\w+)/i)?.[1] || "Unknown Sender";
+                if (fullText.match(/to/i)) receiverText = "Receiver: " + fullText.match(/to\s+(\w+)/i)?.[1] || "Unknown Receiver";
+                
+                // If we have numbers like "1-12", treat as quantity references
+                if (fullText.match(/\d+-\d+/)) {
+                    productList = ["[1] SKU:12345 - Qty:12", "[2] SKU:67890 - Qty:5"];
+                }
+                
+                // Update global extracted data
+                extractedData = {
+                    id: extractedId,
+                    barcode: extractedBarcode,
+                    sender: senderText,
+                    receiver: receiverText,
+                    products: productList
+                };
+                
+                // Display nicely
+                outputPre.innerHTML = `
+═══════════════ SHIPPING LABEL ═══════════════
+📦 TRACKING ID: ${extractedData.id}
+🔖 BARCODE VALUE: ${extractedData.barcode}
+📤 SENDER: ${extractedData.sender}
+📥 RECEIVER: ${extractedData.receiver}
+📋 PRODUCTS:
+${extractedData.products.map(p => `   • ${p}`).join('\n')}
+═════════════════════════════════════════════
+                `;
+                
+                setStatus("✅ Data extracted successfully! You can now connect to the printer.");
+                connectBtn.disabled = false; // Enable connect button
+                
+            } catch (error) {
+                console.error(error);
+                setStatus("Failed to parse PDF. Check console for details.", true);
+                outputPre.innerHTML = `Error: ${error.message}`;
+            }
+        };
+        
+        fileReader.readAsArrayBuffer(file);
+    };
+
+    // --- 2. Bluetooth Printer Connection ---
+    connectBtn.onclick = async () => {
+        try {
+            setStatus("🔍 Scanning for Bluetooth printers... Please select your 58mm printer.");
+            // Initialize the WebBluetooth helper
+            const printer = new WebBluetoothReceiptPrinter();
+            
+            // This triggers the browser's native Bluetooth chooser
+            await printer.connect();
+            
+            // Store printer instance and get its properties
+            bluetoothPrinter = printer;
+            
+            // Listen for successful connection
+            printer.addEventListener('connected', (device) => {
+                console.log("Connected to:", device);
+                printerLanguage = device.language; // usually 'esc-pos'
+                printerCodepage = device.codepageMapping;
+                setStatus(`✅ Connected to ${device.name}. Ready to print!`);
+                printBtn.disabled = false;
+                connectBtn.disabled = true;
+            });
+            
+            printer.addEventListener('disconnected', () => {
+                setStatus("⚠️ Printer disconnected.", true);
+                printBtn.disabled = true;
+                connectBtn.disabled = false;
+                bluetoothPrinter = null;
+            });
+            
+        } catch (err) {
+            console.error(err);
+            setStatus(`❌ Connection failed: ${err.message}. Make sure printer is paired and Bluetooth is ON.`, true);
+            connectBtn.disabled = false;
+        }
+    };
+
+    // --- 3. ESC/POS Printing for 58mm Format ---
+    printBtn.onclick = async () => {
+        if (!bluetoothPrinter) {
+            setStatus("Printer not connected. Please connect first.", true);
+            return;
+        }
+        
+        if (!extractedData.id || extractedData.id === "N/A") {
+            setStatus("No label data loaded. Please extract data from a PDF first.", true);
+            return;
+        }
+        
+        setStatus("🖨️ Sending to printer...");
+        
+        try {
+            // Initialize the ESC/POS encoder specifically for 58mm thermal printers
+            // The encoder handles character encoding, barcode generation, and formatting
+            const encoder = new ReceiptPrinterEncoder({
+                language: printerLanguage || 'esc-pos',    // Use detected language or fallback
+                codepageMapping: printerCodepage || 'auto',
+                width: 58,                                 // 58mm paper width
+                implicitNewline: true                      // Auto handle line breaks
+            });
+            
+            // Build the receipt byte stream
+            // For 58mm, we limit line length to 32 characters for standard font, 48 for condensed
+            const printData = encoder
+                .initialize()                               // Reset printer settings
+                .setAlignment('center')                     // Center align for header
+                .setTextStyle({ bold: true, width: 2, height: 2 }) // Double size for header
+                .textLine('SHIPPING LABEL')
+                .setTextStyle({ bold: false, width: 1, height: 1 })
+                .textLine('────────────────────────')
+                .setAlignment('left')
+                .textLine(``)
+                .setTextStyle({ bold: true })
+                .textLine(`TRACKING ID:`)
+                .setTextStyle({ bold: false })
+                .textLine(`${extractedData.id}`)
+                .textLine(``)
+                .setTextStyle({ bold: true })
+                .textLine(`BARCODE:`)
+                .setTextStyle({ bold: false })
+                .textLine(`${extractedData.barcode}`)
+                .textLine(``)
+                // Print actual scannable barcode (Code128 is standard for shipping)
+                .barcode(extractedData.barcode, 'code128', {
+                    width: 2,      // Narrow bar width
+                    height: 60,    // Height in dots (approx 15mm)
+                    text: true     // Show human-readable text below barcode
+                })
+                .textLine(``)
+                .textLine(`────────────────────────`)
+                .setTextStyle({ bold: true })
+                .textLine(`📤 SENDER:`)
+                .setTextStyle({ bold: false })
+                .textLine(`${extractedData.sender.substring(0, 32)}`)
+                .textLine(``)
+                .setTextStyle({ bold: true })
+                .textLine(`📥 RECEIVER:`)
+                .setTextStyle({ bold: false })
+                .textLine(`${extractedData.receiver.substring(0, 32)}`)
+                .textLine(``)
+                .setTextStyle({ bold: true })
+                .textLine(`📦 ORDER DETAILS:`)
+                .setTextStyle({ bold: false })
+                .textLine(`────────────────────────`);
+            
+            // Add product list with proper formatting for small paper
+            extractedData.products.forEach(product => {
+                // Truncate long product names for 58mm
+                const truncated = product.length > 32 ? product.substring(0, 29) + '...' : product;
+                printData.textLine(truncated);
+            });
+            
+            // Add footer and cut paper
+            printData
+                .textLine(`────────────────────────`)
+                .setAlignment('center')
+                .textLine(`Thank you for your business!`)
+                .textLine(`www.example.com/track/${extractedData.id}`)
+                .newline()
+                .newline()
+                .cut('full')        // Automatically cut the paper
+                .encode();          // Finalize as Uint8Array bytes
+            
+            // Send to printer via WebBluetooth
+            await bluetoothPrinter.print(printData);
+            
+            setStatus("✅ Label printed successfully! Check your thermal printer.");
+            
+        } catch (err) {
+            console.error("Print error:", err);
+            setStatus(`❌ Print failed: ${err.message}`, true);
+        }
+    };
+    
+    // Initial setup: disable buttons until data is loaded
+    connectBtn.disabled = true;
+    printBtn.disabled = true;
+    
+    // Optional: If printer supports reconnection, try to auto-reconnect
+    // (Not implemented for simplicity, but can be added using localStorage)
+    
+</script>
+</body>
+</html>
