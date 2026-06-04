@@ -2,385 +2,624 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>58mm Label Printer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>58mm Label Printer | Batch PDF to Epos EPX583</title>
+    <!-- PDF.js from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
-        body { font-family: monospace; background: #f4f4f4; margin: 0; padding: 20px; }
-        .container { max-width: 700px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; }
-        button { background: #0052cc; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 5px; }
-        button:disabled { background: #ccc; }
-        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 6px; }
-        .good { background: #d4edda; color: #155724; }
-        .bad { background: #f8d7da; color: #721c24; }
-        input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .raw-data { background: #e8f4f8; font-size: 10px; max-height: 200px; overflow: auto; margin-top: 10px; }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: system-ui, 'Segoe UI', 'Roboto', monospace;
+            background: #f1f4f8;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 860px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 28px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+            overflow: hidden;
+            padding: 20px 24px 32px;
+        }
+        h1 {
+            font-size: 1.7rem;
+            margin: 0 0 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        h1 small {
+            font-size: 0.8rem;
+            font-weight: normal;
+            background: #eef2ff;
+            padding: 4px 10px;
+            border-radius: 40px;
+            color: #1e40af;
+        }
+        .sub {
+            color: #4b5563;
+            margin-bottom: 24px;
+            border-left: 3px solid #3b82f6;
+            padding-left: 12px;
+        }
+        .flex-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin: 16px 0;
+            align-items: center;
+        }
+        button {
+            background: #1e293b;
+            border: none;
+            color: white;
+            font-weight: 600;
+            padding: 10px 18px;
+            border-radius: 40px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        button.primary {
+            background: #0f3b7a;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        button.primary:active { background: #0a2c5e; transform: scale(0.97);}
+        button.warning {
+            background: #b45309;
+        }
+        button.danger {
+            background: #b91c1c;
+        }
+        button.success {
+            background: #15803d;
+        }
+        button.secondary {
+            background: #334155;
+        }
+        button:disabled {
+            opacity: 0.5;
+            transform: none;
+            cursor: not-allowed;
+        }
+        .status-box {
+            background: #f8fafc;
+            border-radius: 20px;
+            padding: 12px 18px;
+            margin: 16px 0;
+            font-size: 0.85rem;
+            border-left: 4px solid #3b82f6;
+        }
+        .error-box {
+            background: #fee2e2;
+            border-left-color: #dc2626;
+            color: #991b1b;
+        }
+        .good-box {
+            background: #e0f2fe;
+            border-left-color: #0284c7;
+        }
+        .preview-area {
+            background: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 16px;
+            border-radius: 20px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin: 16px 0;
+        }
+        .label-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .label-title {
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            color: #0f3b7a;
+            border-bottom: 1px dashed #cbd5e1;
+            display: inline-block;
+        }
+        .product-line {
+            font-size: 0.8rem;
+            font-family: monospace;
+            margin-left: 8px;
+        }
+        .badge {
+            background: #eef2ff;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+        }
+        .progress-bar {
+            background: #e2e8f0;
+            border-radius: 40px;
+            height: 10px;
+            width: 100%;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            background: #2563eb;
+            width: 0%;
+            height: 10px;
+            border-radius: 40px;
+            transition: width 0.2s;
+        }
+        .barcode-test {
+            background: #f1f5f9;
+            border-radius: 20px;
+            padding: 12px;
+            margin-top: 20px;
+        }
+        hr {
+            margin: 20px 0;
+            border-color: #e2e8f0;
+        }
+        @media (max-width: 640px) {
+            .container { padding: 16px; }
+            button { padding: 8px 14px; font-size: 0.75rem; }
+        }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📦 58mm Label Printer</h2>
-    
-    <input type="file" id="fileInput" accept=".pdf">
-    <button id="extractBtn">🔍 Extract from PDF</button>
-    <button id="printBtn" disabled>🖨️ Print to Bluetooth Printer</button>
-    
-    <div id="status"></div>
-    
-    <h3>📄 Extracted Data (will print this):</h3>
-    <pre id="preview">No data yet...</pre>
-    
-    <h3>✏️ Manual Edit (changes print output):</h3>
-    <label>Tracking ID / Barcode:</label>
-    <input type="text" id="manualId" placeholder="SPXID...">
-    <label>Sender (address/name):</label>
-    <textarea id="manualSender" rows="2" placeholder="Sender info"></textarea>
-    <label>Receiver (name/address):</label>
-    <textarea id="manualReceiver" rows="2" placeholder="Receiver info"></textarea>
-    <label>Products (one per line):</label>
-    <textarea id="manualProducts" rows="4" placeholder="1x Product Name&#10;2x Another Product"></textarea>
-    
-    <details>
-        <summary>🔧 Debug: Raw extracted text</summary>
-        <pre id="rawText" class="raw-data"></pre>
+    <h1>📦 58mm Thermal Label <small>Epos EPX583-V2</small></h1>
+    <div class="sub">✔ Batch PDF → Extract Resi + Penerima + Produk → Print (BLE / ESC/POS)</div>
+
+    <!-- file selection + actions -->
+    <div class="flex-row">
+        <input type="file" id="pdfInput" accept=".pdf" multiple style="flex:1; padding:8px;">
+        <button id="extractBtn" class="primary">🔍 Extract from PDFs</button>
+        <button id="clearBtn" class="secondary">🗑 Clear all</button>
+    </div>
+
+    <!-- Bluetooth & printer status -->
+    <div class="flex-row">
+        <button id="scanPrinterBtn" class="secondary">📡 Scan & Connect Printer</button>
+        <button id="testBarcodeBtn" class="warning" disabled>🧪 Test barcode (GS k 73)</button>
+        <span id="printerStatus" style="font-size:0.75rem; background:#eef2ff; padding:6px 12px; border-radius:40px;">⚫ Not connected</span>
+    </div>
+
+    <!-- barcode troubleshooting panel -->
+    <div class="barcode-test">
+        <div style="font-weight:bold; margin-bottom:8px;">🔧 BARCODE TEST ZONE (EPX583)</div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px;">
+            <button id="testCode128A" class="secondary" disabled>▶ Test GS k 73 (CODE128)</button>
+            <button id="testCode128B" class="secondary" disabled>▶ Test GS k 69 (CODE128 B)</button>
+            <button id="testCode128C" class="secondary" disabled>▶ Test GS k 68 (CODE128 C)</button>
+            <button id="testRawText" class="secondary" disabled>📝 Print sample text</button>
+        </div>
+        <div style="font-size:12px; margin-top:6px; color:#475569;">💡 Click "Scan & Connect" first, then test which barcode prints correctly.</div>
+    </div>
+
+    <!-- batch queue & preview -->
+    <div style="margin-top: 24px;">
+        <div style="display:flex; justify-content: space-between; align-items:center;">
+            <h3 style="margin:0;">📋 Label Queue</h3>
+            <button id="printAllBtn" class="primary" disabled>🖨️ PRINT ALL BATCH</button>
+        </div>
+        <div id="queueContainer" style="max-height: 380px; overflow-y: auto; margin-top: 12px;">
+            <div style="text-align:center; color:#6c757d; padding: 30px;">No labels extracted yet. Select PDFs and click "Extract".</div>
+        </div>
+        <div id="batchProgress" style="display:none; margin-top:12px;">
+            <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+            <div id="progressText" style="font-size:0.8rem; text-align:center;"></div>
+        </div>
+    </div>
+
+    <!-- debug / extracted raw (optional) -->
+    <details style="margin-top:20px;">
+        <summary style="cursor:pointer; font-size:0.75rem;">🔎 Debug: raw parser preview</summary>
+        <pre id="debugRaw" style="background:#f1f5f9; padding:8px; font-size:10px; max-height:150px; overflow:auto;"></pre>
     </details>
 </div>
 
 <script>
+    // -------------------------------
+    // 1. GLOBALS & PDF WORKER
+    // -------------------------------
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
     
-    let extractedRawText = "";
-    let printData = {
-        id: "",
-        barcode: "",
-        sender: "",
-        receiver: "",
-        products: []
-    };
-
-    const fileInput = document.getElementById('fileInput');
+    let extractedLabels = [];      // array of { id, receiver, products, orderRef, rawPreview }
+    let bluetoothDevice = null;
+    let writeCharacteristic = null;
+    let isConnected = false;
+    
+    // DOM elements
+    const pdfInput = document.getElementById('pdfInput');
     const extractBtn = document.getElementById('extractBtn');
-    const printBtn = document.getElementById('printBtn');
-    const statusDiv = document.getElementById('status');
-    const previewDiv = document.getElementById('preview');
-    const rawTextDiv = document.getElementById('rawText');
-    const manualId = document.getElementById('manualId');
-    const manualSender = document.getElementById('manualSender');
-    const manualReceiver = document.getElementById('manualReceiver');
-    const manualProducts = document.getElementById('manualProducts');
-
-    function showStatus(msg, isError = false) {
-        statusDiv.innerHTML = `<div class="${isError ? 'bad' : 'good'}">${msg}</div>`;
-    }
-
-    function updatePreview() {
-        const id = manualId.value || printData.id || 'Not set';
-        const sender = manualSender.value || printData.sender || 'Not set';
-        const receiver = manualReceiver.value || printData.receiver || 'Not set';
-        let products = [];
-        if (manualProducts.value) {
-            products = manualProducts.value.split('\n').filter(p => p.trim());
-        } else if (printData.products && printData.products.length) {
-            products = printData.products;
+    const clearBtn = document.getElementById('clearBtn');
+    const scanPrinterBtn = document.getElementById('scanPrinterBtn');
+    const testBarcodeBtn = document.getElementById('testBarcodeBtn');
+    const printAllBtn = document.getElementById('printAllBtn');
+    const queueContainer = document.getElementById('queueContainer');
+    const printerStatusSpan = document.getElementById('printerStatus');
+    const batchProgressDiv = document.getElementById('batchProgress');
+    const progressFill = document.getElementById('progressFill');
+    const progressTextSpan = document.getElementById('progressText');
+    const debugRawPre = document.getElementById('debugRaw');
+    
+    // test barcode buttons
+    const testCode128A = document.getElementById('testCode128A');
+    const testCode128B = document.getElementById('testCode128B');
+    const testCode128C = document.getElementById('testCode128C');
+    const testRawText = document.getElementById('testRawText');
+    
+    // -------------------------------
+    // 2. PARSER: STRING POSITION (based on your exact debug text)
+    // -------------------------------
+    function parseLabelFromRawText(rawText) {
+        // 1. Resi / SPXID
+        let resi = "SPXIDUNKNOWN";
+        const noResiIdx = rawText.indexOf('No. Resi:');
+        if (noResiIdx !== -1) {
+            const spxStart = rawText.indexOf('SPXID', noResiIdx);
+            if (spxStart !== -1) {
+                let endIdx = spxStart + 18; // SPXID + 12-13 digits
+                if (endIdx > rawText.length) endIdx = rawText.length;
+                resi = rawText.substring(spxStart, endIdx).trim();
+                // ensure it starts with SPXID
+                if (!resi.startsWith('SPXID')) resi = "SPXID" + resi;
+            }
         } else {
-            products = ['No products'];
+            // fallback: find any SPXID
+            const anySpx = rawText.indexOf('SPXID');
+            if (anySpx !== -1) resi = rawText.substring(anySpx, anySpx+18).trim();
         }
         
-        previewDiv.innerHTML = `
-╔════════════════════════════════════════════╗
-║           SHIPPING LABEL (58mm)            ║
-╠════════════════════════════════════════════╣
-║ TRACKING ID: ${id.padEnd(35)}║
-║ BARCODE #:   ${id.padEnd(35)}║
-╠════════════════════════════════════════════╣
-║ SENDER:                                    ║
-║ ${sender.substring(0, 38).padEnd(38)}║
-╠════════════════════════════════════════════╣
-║ RECEIVER:                                  ║
-║ ${receiver.substring(0, 38).padEnd(38)}║
-╠════════════════════════════════════════════╣
-║ PRODUCTS:                                  ║
-${products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
-╚════════════════════════════════════════════╝
-
-✅ Barcode will print as scannable CODE128
-✅ Printer will auto-cut after printing
-        `;
-    }
-
-    // Smart parser based on your actual PDF structure
-    function parseShippingLabel(rawText) {
-        console.log("Parsing raw text...");
-        
-        // 1. Extract SPXID (tracking number) - reliable
-        const spxMatch = rawText.match(/SPXID\d+/g);
-        const trackingId = spxMatch ? spxMatch[0] : "Not found";
-        
-        // 2. Extract SENDER - look for address starting with Jl. or Jalan
-        let sender = "";
-        const addressPattern = /(Jl\.[^P]{30,150}?)(?=Pengirim|SPXID|Penerima|$)/i;
-        const addressMatch = rawText.match(addressPattern);
-        if (addressMatch) {
-            sender = addressMatch[1].trim().replace(/\s+/g, ' ');
+        // 2. Penerima (receiver name) – between "Penerima:" and phone number (628)
+        let receiver = "Penerima tidak ditemukan";
+        const penerimaIdx = rawText.indexOf('Penerima:');
+        if (penerimaIdx !== -1) {
+            let startName = penerimaIdx + 9; // after "Penerima: "
+            let endName = rawText.indexOf('628', startName);
+            if (endName === -1) endName = rawText.indexOf('Berat:', startName);
+            if (endName === -1) endName = startName + 60;
+            let rawName = rawText.substring(startName, endName).trim();
+            // clean up multiple spaces & newlines
+            receiver = rawName.replace(/\s+/g, ' ').substring(0, 45);
         }
         
-        // If no Jl., look for text before "Pengirim"
-        if (!sender) {
-            const pengirimIndex = rawText.indexOf('Pengirim:');
-            if (pengirimIndex > 0) {
-                sender = rawText.substring(0, pengirimIndex).trim();
-                sender = sender.replace(/SPXID\d+/g, '').trim();
-            }
-        }
-        
-        // Clean up sender
-        sender = sender.substring(0, 100).replace(/\s+/g, ' ');
-        
-        // 3. Extract RECEIVER - look for business name + address
-        let receiver = "";
-        
-        // Look for Diana Bakery pattern
-        const bakeryMatch = rawText.match(/(Diana Bakery[^#\n]{0,80})/i);
-        if (bakeryMatch) {
-            receiver = bakeryMatch[1].trim();
-        }
-        
-        // Look for "Penerima:" pattern
-        if (!receiver) {
-            const penerimaMatch = rawText.match(/Penerima:\s*([^#\n]{10,80})/i);
-            if (penerimaMatch) {
-                receiver = penerimaMatch[1].trim();
-            }
-        }
-        
-        // Look for phone number pattern (6281...) as receiver location
-        if (!receiver) {
-            const phoneMatch = rawText.match(/(6281\d{8,10})/);
-            if (phoneMatch) {
-                const phoneIndex = rawText.indexOf(phoneMatch[0]);
-                const beforePhone = rawText.substring(Math.max(0, phoneIndex - 40), phoneIndex);
-                if (beforePhone.match(/[A-Z][a-z]+/)) {
-                    receiver = beforePhone.trim() + " " + phoneMatch[0];
-                }
-            }
-        }
-        
-        receiver = receiver.substring(0, 100).replace(/\s+/g, ' ');
-        
-        // 4. Extract PRODUCTS
+        // 3. Products: locate "Qty" section until "Pesan:"
+        const qtyIdx = rawText.indexOf('Qty');
+        const pesanIdx = rawText.indexOf('Pesan:');
         let products = [];
-        
-        // Look for product with quantity and name
-        const productPattern = /(\d+)\s+(Bolu Jadul[^#\n]{10,80})/i;
-        const productMatch = rawText.match(productPattern);
-        if (productMatch) {
-            products.push(`${productMatch[1]}x ${productMatch[2].trim()}`);
-        }
-        
-        // Look for any line with "x" pattern after cleaning
-        if (products.length === 0) {
-            const lines = rawText.split(/\s{2,}/);
-            for (const line of lines) {
-                if (line.match(/\d+\s+[A-Z][a-z]/) && line.length > 10 && line.length < 80) {
-                    if (!line.includes('SPXID') && !line.includes('No.')) {
-                        products.push(line.trim());
-                        break;
-                    }
+        if (qtyIdx !== -1 && pesanIdx !== -1) {
+            const productBlock = rawText.substring(qtyIdx + 3, pesanIdx);
+            const lines = productBlock.split(/\r?\n/);
+            for (let line of lines) {
+                // pattern: "1   Roti Ekonomis ...   6"
+                const match = line.match(/^\s*(\d+)\s+([A-Za-z].*?)\s+(\d+)\s*$/);
+                if (match) {
+                    const qty = match[3].trim();
+                    let productName = match[2].trim();
+                    // truncate name for 58mm
+                    if (productName.length > 32) productName = productName.substring(0, 30) + "..";
+                    products.push(`${qty}x ${productName}`);
                 }
             }
         }
-        
         if (products.length === 0) {
-            products = ["1x Product (see raw data for details)"];
+            products = ["(produk tidak terdeteksi, periksa PDF)"];
         }
         
-        // Set defaults if extraction failed
-        if (!sender || sender.length < 10) {
-            sender = "Jl. Malibuh indah raya blok. F28, MEDAN POLONIA, KOTA MEDAN";
-        }
-        if (!receiver || receiver.length < 5) {
-            receiver = "Diana Bakery - Suka Damai";
+        // 4. Order number (optional for reference)
+        let orderNumber = "";
+        const pesanOpen = rawText.indexOf('Pesan:');
+        if (pesanOpen !== -1) {
+            const parenStart = rawText.indexOf('(', pesanOpen);
+            const parenEnd = rawText.indexOf(')', parenStart);
+            if (parenStart !== -1 && parenEnd !== -1) {
+                orderNumber = rawText.substring(parenStart+1, parenEnd);
+            }
         }
         
-        return {
-            id: trackingId,
-            barcode: trackingId,
-            sender: sender,
-            receiver: receiver,
-            products: products
-        };
+        return { resi, receiver, products, orderNumber };
     }
-
-    // Extract from PDF
+    
+    // -------------------------------
+    // 3. EXTRACT FROM PDF (binary)
+    // -------------------------------
+    async function extractFromPDFArrayBuffer(arrayBuffer, fileName) {
+        try {
+            const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+            let fullText = "";
+            for (let i = 1; i <= Math.min(pdf.numPages, 2); i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const strings = textContent.items.map(item => item.str);
+                fullText += strings.join(' ') + " ";
+            }
+            // clean multiple spaces
+            fullText = fullText.replace(/\s+/g, ' ').trim();
+            const parsed = parseLabelFromRawText(fullText);
+            // save raw snippet for debug
+            return {
+                id: parsed.resi,
+                receiver: parsed.receiver,
+                products: parsed.products,
+                orderRef: parsed.orderNumber,
+                rawSnippet: fullText.substring(0, 300) + "..."
+            };
+        } catch (err) {
+            console.error("PDF parse error", err);
+            return {
+                id: "SPXID_ERROR",
+                receiver: "Gagal parse PDF",
+                products: ["Error parsing PDF"],
+                orderRef: "",
+                rawSnippet: err.message
+            };
+        }
+    }
+    
+    // Batch extraction
     extractBtn.onclick = async () => {
-        const file = fileInput.files[0];
-        if (!file) {
-            showStatus("Select a PDF file first", true);
+        const files = pdfInput.files;
+        if (!files || files.length === 0) {
+            alert("Pilih file PDF terlebih dahulu (bisa multiple).");
             return;
         }
+        extractedLabels = [];
+        let statusMsg = document.createElement('div');
+        statusMsg.className = "status-box good-box";
+        statusMsg.innerText = `Memproses ${files.length} berkas...`;
+        queueContainer.innerHTML = "";
+        queueContainer.appendChild(statusMsg);
         
-        showStatus("Reading PDF...");
-        
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(e.target.result) }).promise;
-                let fullText = "";
-                
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const text = await page.getTextContent();
-                    const strings = text.items.map(item => item.str);
-                    fullText += strings.join(' ') + "\n";
-                }
-                
-                extractedRawText = fullText;
-                rawTextDiv.innerText = extractedRawText.substring(0, 2000);
-                
-                console.log("Full extracted text:", extractedRawText);
-                
-                // Parse the actual PDF content
-                printData = parseShippingLabel(extractedRawText);
-                
-                // Auto-fill manual inputs
-                manualId.value = printData.id;
-                manualSender.value = printData.sender;
-                manualReceiver.value = printData.receiver;
-                manualProducts.value = printData.products.join('\n');
-                
-                updatePreview();
-                showStatus(`✅ Extracted: ${printData.id}`);
-                printBtn.disabled = false;
-                
-            } catch (err) {
-                showStatus("PDF parse error: " + err.message, true);
-                console.error(err);
-            }
-        };
-        reader.readAsArrayBuffer(file);
-    };
-
-    // ESC/POS printing functions
-    function stringToBytes(str) {
-        const bytes = [];
-        for (let i = 0; i < str.length; i++) {
-            bytes.push(str.charCodeAt(i));
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const buffer = await file.arrayBuffer();
+            const labelData = await extractFromPDFArrayBuffer(buffer, file.name);
+            extractedLabels.push(labelData);
         }
-        return bytes;
+        renderQueue();
+        // show debug sample (first label raw)
+        if (extractedLabels.length > 0 && extractedLabels[0].rawSnippet) {
+            debugRawPre.innerText = `🔎 Contoh raw dari PDF pertama:\n${extractedLabels[0].rawSnippet}`;
+        }
+        updatePrintAllButton();
+    };
+    
+    function renderQueue() {
+        if (!extractedLabels.length) {
+            queueContainer.innerHTML = `<div style="text-align:center; color:#6c757d; padding: 30px;">Tidak ada label. Upload PDF lalu Extract.</div>`;
+            return;
+        }
+        queueContainer.innerHTML = "";
+        extractedLabels.forEach((label, idx) => {
+            const card = document.createElement('div');
+            card.className = "label-card";
+            card.innerHTML = `
+                <div class="label-title">📦 #${idx+1} · ${label.id}</div>
+                <div style="margin-top: 6px;"><span class="badge">Penerima</span> <strong>${escapeHtml(label.receiver)}</strong></div>
+                <div style="margin-top: 6px;"><span class="badge">Produk (${label.products.length})</span></div>
+                <div style="margin-left: 8px;">
+                    ${label.products.map(p => `<div class="product-line">• ${escapeHtml(p)}</div>`).join('')}
+                </div>
+                ${label.orderRef ? `<div style="margin-top:6px; font-size:11px; color:#475569;">🆔 Order: ${escapeHtml(label.orderRef)}</div>` : ''}
+                <div style="margin-top: 8px;">
+                    <button data-edit="${idx}" class="secondary editBtn" style="padding:4px 12px; font-size:11px;">✏️ Edit</button>
+                </div>
+            `;
+            queueContainer.appendChild(card);
+        });
+        // attach edit events
+        document.querySelectorAll('.editBtn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.getAttribute('data-edit'));
+                editLabel(idx);
+            });
+        });
     }
-
-    function buildEscPosData(data) {
+    
+    function editLabel(index) {
+        const label = extractedLabels[index];
+        const newReceiver = prompt("Edit Nama Penerima:", label.receiver);
+        if (newReceiver !== null) label.receiver = newReceiver.trim() || label.receiver;
+        const newProducts = prompt("Edit produk (pisahkan dengan koma | contoh: 2x Roti Coklat, 1x Donat):", label.products.join(", "));
+        if (newProducts !== null) {
+            label.products = newProducts.split(",").map(s => s.trim()).filter(s => s);
+            if (label.products.length === 0) label.products = ["Produk tidak tersedia"];
+        }
+        renderQueue();
+    }
+    
+    function escapeHtml(str) { return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;});}
+    
+    function updatePrintAllButton() {
+        if (extractedLabels.length > 0 && isConnected) printAllBtn.disabled = false;
+        else printAllBtn.disabled = true;
+    }
+    
+    clearBtn.onclick = () => {
+        extractedLabels = [];
+        renderQueue();
+        printAllBtn.disabled = true;
+        debugRawPre.innerText = "";
+    };
+    
+    // -------------------------------
+    // 4. BLUETOOTH & ESC/POS (EPX583)
+    // -------------------------------
+    scanPrinterBtn.onclick = async () => {
+        if (!navigator.bluetooth) {
+            alert("Web Bluetooth tidak didukung. Gunakan Chrome / Edge di Android.");
+            return;
+        }
+        try {
+            printerStatusSpan.innerText = "⏳ Mencari printer...";
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] // generic printer service
+            });
+            bluetoothDevice = device;
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+            const characteristics = await service.getCharacteristics();
+            let foundChar = null;
+            for (let char of characteristics) {
+                if (char.properties.write || char.properties.writeWithoutResponse) {
+                    foundChar = char;
+                    break;
+                }
+            }
+            if (!foundChar) throw new Error("Tidak ada karakteristik write");
+            writeCharacteristic = foundChar;
+            isConnected = true;
+            printerStatusSpan.innerHTML = `✅ Terhubung ke ${device.name || 'EPX583'}`;
+            // enable test buttons
+            testBarcodeBtn.disabled = false;
+            testCode128A.disabled = false;
+            testCode128B.disabled = false;
+            testCode128C.disabled = false;
+            testRawText.disabled = false;
+            updatePrintAllButton();
+        } catch (err) {
+            console.error(err);
+            printerStatusSpan.innerHTML = "❌ Gagal konek";
+            isConnected = false;
+            writeCharacteristic = null;
+            updatePrintAllButton();
+            alert("Koneksi Bluetooth gagal: " + err.message);
+        }
+    };
+    
+    // UTILITY: send bytes
+    async function sendEscPosBytes(bytesArray) {
+        if (!writeCharacteristic) throw new Error("Printer tidak terhubung");
+        const chunkSize = 20;
+        for (let i = 0; i < bytesArray.length; i += chunkSize) {
+            const chunk = bytesArray.slice(i, i + chunkSize);
+            await writeCharacteristic.writeValue(chunk);
+            await new Promise(r => setTimeout(r, 35));
+        }
+    }
+    
+    // Build label ESC/POS (with barcode command - use dynamic method)
+    async function printSpecificLabel(labelData, barcodeCommand = 0x49) { 
+        // ESC/POS builder
         const ESC = '\x1B';
         const GS = '\x1D';
+        const LF = '\x0A';
+        const strToBytes = (str) => {
+            const bytes = [];
+            for (let i=0; i<str.length; i++) bytes.push(str.charCodeAt(i));
+            return bytes;
+        };
+        let buffer = [];
         
-        let bytes = [];
-        
-        bytes.push(...stringToBytes(ESC + '@'));
-        bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
-        bytes.push(...stringToBytes(ESC + '!' + '\x20'));
-        bytes.push(...stringToBytes('SHIPPING LABEL\n'));
-        bytes.push(...stringToBytes(ESC + '!' + '\x00'));
-        bytes.push(...stringToBytes(ESC + 'a' + '\x00'));
-        bytes.push(...stringToBytes('========================\n'));
-        
-        bytes.push(...stringToBytes('\nTRACKING ID:\n'));
-        bytes.push(...stringToBytes(data.id + '\n\n'));
-        
-        // BARCODE
-        if (data.id && data.id !== "Not found") {
-            bytes.push(...stringToBytes(GS + 'k' + '\x49'));
-            bytes.push(data.id.length);
-            bytes.push(...stringToBytes(data.id));
-            bytes.push(0x0A);
-            bytes.push(0x0A);
+        // init
+        buffer.push(...strToBytes(ESC + '@'));
+        // center for barcode
+        buffer.push(...strToBytes(ESC + 'a' + '\x01'));
+        // barcode generation (command flexible)
+        if (labelData.id && labelData.id.length > 0) {
+            buffer.push(...strToBytes(GS + 'k' + String.fromCharCode(barcodeCommand)));
+            buffer.push(labelData.id.length);
+            buffer.push(...strToBytes(labelData.id));
+            buffer.push(LF);
+            buffer.push(LF);
+        } else {
+            buffer.push(...strToBytes("NO BARCODE\n"));
         }
-        
-        bytes.push(...stringToBytes('SENDER:\n'));
-        bytes.push(...stringToBytes(data.sender + '\n\n'));
-        
-        bytes.push(...stringToBytes('RECEIVER:\n'));
-        bytes.push(...stringToBytes(data.receiver + '\n\n'));
-        
-        bytes.push(...stringToBytes('PRODUCTS:\n'));
-        for (const p of data.products) {
-            bytes.push(...stringToBytes('  ' + p + '\n'));
+        // left align for receiver & products
+        buffer.push(...strToBytes(ESC + 'a' + '\x00'));
+        buffer.push(...strToBytes(labelData.receiver + "\n"));
+        buffer.push(LF);
+        // Products list
+        for (let prod of labelData.products) {
+            let line = "  " + prod;
+            if (line.length > 32) line = line.substring(0, 32);
+            buffer.push(...strToBytes(line + "\n"));
         }
-        
-        bytes.push(...stringToBytes('\n'));
-        bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
-        bytes.push(...stringToBytes('========================\n'));
-        bytes.push(...stringToBytes(GS + 'V' + '\x42' + '\x00'));
-        
-        return new Uint8Array(bytes);
+        buffer.push(...strToBytes("\n\n"));
+        // No cut, manual tear
+        return new Uint8Array(buffer);
     }
-
-    async function printToBluetooth(dataBytes) {
-        const device = await navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
-            optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
-        });
-        
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
-        
-        let characteristic = null;
-        const chars = await service.getCharacteristics();
-        for (const char of chars) {
-            if (char.properties.write) {
-                characteristic = char;
-                break;
-            }
-        }
-        
-        if (!characteristic) throw new Error("No write characteristic");
-        
-        for (let i = 0; i < dataBytes.length; i += 20) {
-            const chunk = dataBytes.slice(i, i + 20);
-            await characteristic.writeValue(chunk);
-            await new Promise(r => setTimeout(r, 30));
-        }
-        
-        setTimeout(() => {
-            if (device.gatt.connected) device.gatt.disconnect();
-        }, 1000);
-    }
-
-    printBtn.onclick = async () => {
-        if (!navigator.bluetooth) {
-            showStatus("Web Bluetooth not supported. Use Chrome on Android.", true);
+    
+    // print test with specific barcode type
+    async function testBarcodeVariant(commandCode, variantName) {
+        if (!isConnected || !writeCharacteristic) {
+            alert("Hubungkan printer terlebih dahulu.");
             return;
         }
-        
-        const dataToPrint = {
-            id: manualId.value || "NO_ID",
-            barcode: manualId.value || "NO_ID",
-            sender: manualSender.value || "Not specified",
-            receiver: manualReceiver.value || "Not specified",
-            products: manualProducts.value.split('\n').filter(p => p.trim())
+        const sampleLabel = {
+            id: "SPXID069572536186",
+            receiver: "UJI BARCODE - " + variantName,
+            products: ["1x Test Produk"]
         };
-        
-        if (dataToPrint.products.length === 0) {
-            dataToPrint.products = ["No products listed"];
-        }
-        
-        showStatus("Select your Bluetooth printer...");
-        
         try {
-            const printBytes = buildEscPosData(dataToPrint);
-            await printToBluetooth(printBytes);
-            showStatus("✅ Printed successfully!");
-        } catch (err) {
-            showStatus("Print failed: " + err.message, true);
-        }
-    };
-    
-    if (!navigator.bluetooth) {
-        showStatus("⚠️ Use Chrome browser on Android for Bluetooth printing", true);
-        printBtn.disabled = true;
+            const dataBytes = await printSpecificLabel(sampleLabel, commandCode);
+            await sendEscPosBytes(dataBytes);
+            alert(`Dikirim: barcode ${variantName} . Jika tidak muncul, coba varian lain.`);
+        } catch(e) { alert("Gagal test: "+e.message); }
     }
     
-    updatePreview();
+    testCode128A.onclick = () => testBarcodeVariant(0x49, "CODE128 (GS k 73)");
+    testCode128B.onclick = () => testBarcodeVariant(0x45, "CODE128 B (GS k 69)");
+    testCode128C.onclick = () => testBarcodeVariant(0x44, "CODE128 C (GS k 68)");
+    testRawText.onclick = async () => {
+        if (!isConnected) { alert("Printer belum konek"); return; }
+        const fallbackBytes = new Uint8Array([...Array.from("TEST PRINTER EPX583 - jika teks ini tercetak, barcode mungkin perlu setting.\n\n")].map(c=>c.charCodeAt(0)));
+        await sendEscPosBytes(fallbackBytes);
+        alert("Sample text printed. Barcode tidak dikirim pada test ini.");
+    };
+    
+    // BATCH PRINT MAIN
+    printAllBtn.onclick = async () => {
+        if (!isConnected) { alert("Printer belum terhubung. Klik 'Scan & Connect'."); return; }
+        if (extractedLabels.length === 0) { alert("Tidak ada label. Ekstrak PDF dulu."); return; }
+        // confirm using working barcode type (default 0x49 / GS k 73)
+        let useCommand = 0x49;
+        const userChoice = confirm("Gunakan barcode standar (GS k 73). Jika barcode tidak muncul, klik Batal, lalu test di panel test barcode terlebih dahulu.");
+        if (!userChoice) return;
+        
+        batchProgressDiv.style.display = "block";
+        let success = 0, fail = 0;
+        for (let i = 0; i < extractedLabels.length; i++) {
+            const percent = ((i / extractedLabels.length) * 100);
+            progressFill.style.width = percent + "%";
+            progressTextSpan.innerText = `Mencetak ${i+1} / ${extractedLabels.length} : ${extractedLabels[i].id}`;
+            try {
+                const printPayload = await printSpecificLabel(extractedLabels[i], useCommand);
+                await sendEscPosBytes(printPayload);
+                success++;
+                await new Promise(r => setTimeout(r, 400));
+            } catch (err) {
+                console.error("Gagal cetak label", err);
+                fail++;
+            }
+        }
+        progressFill.style.width = "100%";
+        progressTextSpan.innerText = `Selesai: ✅ ${success} berhasil, ❌ ${fail} gagal.`;
+        setTimeout(() => {
+            batchProgressDiv.style.display = "none";
+            progressFill.style.width = "0%";
+        }, 3000);
+        alert(`Cetak batch selesai. Sukses: ${success}, Gagal: ${fail}`);
+    };
+    
+    // additional: if bluetooth disconnects
+    if (navigator.bluetooth) {
+        // keep UI consistent
+    } else {
+        printerStatusSpan.innerText = "⚠️ Web Bluetooth tidak tersedia (pakai Chrome Android)";
+        scanPrinterBtn.disabled = true;
+    }
 </script>
 </body>
 </html>
