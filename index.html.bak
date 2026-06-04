@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>58mm Bluetooth Label Printer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body { font-family: monospace; background: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .container { background: white; border-radius: 16px; padding: 24px; max-width: 800px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        button { background: #0052cc; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-right: 12px; margin-bottom: 12px; font-size: 16px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        pre { background: #f0f0f0; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin-top: 20px; white-space: pre-wrap; word-wrap: break-word; }
+        .status { padding: 10px; border-radius: 8px; margin: 15px 0; font-weight: bold; }
+        .connected { background: #e3fcef; color: #006644; border-left: 4px solid #006644; }
+        .error { background: #ffeaea; color: #cc0000; border-left: 4px solid #cc0000; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
+        .raw-data { background: #f8f8f8; padding: 10px; font-size: 11px; margin-top: 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>📦 58mm Thermal Label Printer</h2>
+    <p>Upload PDF label → Extract data → Print via Bluetooth</p>
+
+    <div class="row">
+        <input type="file" id="fileInput" accept=".pdf" />
+        <button id="extractBtn">🔍 Extract Data from PDF</button>
+        <button id="printBtn" disabled>🖨️ Print Label (58mm)</button>
+    </div>
+
+    <div id="status"></div>
+    
+    <h3>📄 Extracted Data Preview:</h3>
+    <pre id="output">No data extracted yet...</pre>
+</div>
+
+<script>
+    // Global extracted data
+    let extractedData = {
+        trackingId: null,
+        barcodeValue: null,
+        sender: null,
+        receiver: null,
+        products: []
+    };
+    
+    let bluetoothCharacteristic = null;
+    let bluetoothDevice = null;
+
+    const fileInput = document.getElementById('fileInput');
+    const extractBtn = document.getElementById('extractBtn');
+    const printBtn = document.getElementById('printBtn');
+    const statusDiv = document.getElementById('status');
+    const outputPre = document.getElementById('output');
+
+    function setStatus(message, isError = false) {
+        statusDiv.innerHTML = `<div class="${isError ? 'error' : 'connected'}">${message}</div>`;
+        console.log(message);
+    }
+
+    // Function to clean and extract text from PDF
+    async function extractTextFromPDF(pdfData) {
+        const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        let fullText = "";
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += pageText + "\n";
+        }
+        
+        return fullText;
+    }
+
+    // Function to parse shipping label data from raw text
+    function parseShippingLabel(rawText) {
+        console.log("Raw PDF Text:", rawText);
+        
+        // Look for SPXID pattern (your barcode/tracking number)
+        const spxMatch = rawText.match(/SPXID\d+/i);
+        const trackingId = spxMatch ? spxMatch[0] : null;
+        
+        // Also look for any long number sequence as fallback
+        const longNumberMatch = rawText.match(/\b\d{15,20}\b/);
+        const barcodeValue = trackingId || (longNumberMatch ? longNumberMatch[0] : null);
+        
+        // Try to extract sender - look for patterns like "From:", "Sender:", or text before receiver
+        let sender = "Not specified";
+        let receiver = "Not specified";
+        
+        // Look for common patterns in shipping labels
+        const senderMatch = rawText.match(/(?:Sender|From|Shipper)[:\s]+([^\n]+)/i);
+        if (senderMatch) sender = senderMatch[1].trim();
+        
+        const receiverMatch = rawText.match(/(?:Receiver|To|Consignee)[:\s]+([^\n]+)/i);
+        if (receiverMatch) receiver = receiverMatch[1].trim();
+        
+        // Extract product lines - look for lines with quantities (e.g., "1x", "2x", "SKU")
+        const productLines = [];
+        const lines = rawText.split(/\n/);
+        for (const line of lines) {
+            if (line.match(/\d+x\s+\w+/) || line.match(/SKU:/i) || line.match(/Product/i)) {
+                productLines.push(line.trim());
+            }
+        }
+        
+        // If no products found, try to extract any line with numbers
+        if (productLines.length === 0) {
+            for (const line of lines) {
+                if (line.match(/\d+\s+[A-Z]/) && line.length > 5 && line.length < 50) {
+                    productLines.push(line.trim());
+                }
+            }
+        }
+        
+        return {
+            trackingId: trackingId || "Not found",
+            barcodeValue: barcodeValue || "Not found",
+            sender: sender,
+            receiver: receiver,
+            products: productLines.length > 0 ? productLines : ["No product details found"]
+        };
+    }
+
+    // ESC/POS commands helper
+    function stringToBytes(str) {
+        const bytes = [];
+        for (let i = 0; i < str.length; i++) {
+            bytes.push(str.charCodeAt(i));
+        }
+        return bytes;
+    }
+
+    async function sendToPrinter(dataBytes) {
+        if (!bluetoothCharacteristic) {
+            throw new Error("No printer connected");
+        }
+        
+        // Send in chunks (max 20 bytes per write for BLE)
+        for (let i = 0; i < dataBytes.length; i += 20) {
+            const chunk = dataBytes.slice(i, i + 20);
+            await bluetoothCharacteristic.writeValue(chunk);
+            await new Promise(resolve => setTimeout(resolve, 30));
+        }
+    }
+
+    function buildPrintData(data) {
+        const ESC = '\x1B';
+        const GS = '\x1D';
+        const LF = '\x0A';
+        
+        let bytes = [];
+        
+        // Initialize printer
+        bytes.push(...stringToBytes(ESC + '@'));
+        
+        // Set center alignment for header
+        bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
+        
+        // Double size for title
+        bytes.push(...stringToBytes(ESC + '!' + '\x20'));
+        bytes.push(...stringToBytes('SHIPPING LABEL\n'));
+        
+        // Reset size
+        bytes.push(...stringToBytes(ESC + '!' + '\x00'));
+        bytes.push(...stringToBytes('=====================\n'));
+        
+        // Left align for content
+        bytes.push(...stringToBytes(ESC + 'a' + '\x00'));
+        
+        // Tracking ID
+        bytes.push(...stringToBytes('\nTRACKING ID:\n'));
+        bytes.push(...stringToBytes(data.trackingId + '\n\n'));
+        
+        // Print barcode (if we have a value)
+        if (data.barcodeValue && data.barcodeValue !== "Not found") {
+            // Code 128 barcode
+            const barcodeText = data.barcodeValue;
+            const barcodeLength = barcodeText.length;
+            
+            bytes.push(...stringToBytes(GS + 'k' + '\x49')); // Code 128 command
+            bytes.push(barcodeLength);
+            bytes.push(...stringToBytes(barcodeText));
+            bytes.push(LF);
+            bytes.push(LF);
+        }
+        
+        // Sender
+        bytes.push(...stringToBytes('SENDER:\n'));
+        bytes.push(...stringToBytes(data.sender + '\n\n'));
+        
+        // Receiver
+        bytes.push(...stringToBytes('RECEIVER:\n'));
+        bytes.push(...stringToBytes(data.receiver + '\n\n'));
+        
+        // Products
+        bytes.push(...stringToBytes('PRODUCTS:\n'));
+        for (const product of data.products) {
+            bytes.push(...stringToBytes('  ' + product + '\n'));
+        }
+        
+        // Footer
+        bytes.push(...stringToBytes('\n'));
+        bytes.push(...stringToBytes(ESC + 'a' + '\x01'));
+        bytes.push(...stringToBytes('=====================\n'));
+        bytes.push(...stringToBytes('Thank you!\n\n'));
+        
+        // Cut paper
+        bytes.push(...stringToBytes(GS + 'V' + '\x42' + '\x00'));
+        
+        return new Uint8Array(bytes);
+    }
+
+    // Extract button handler
+    extractBtn.onclick = async () => {
+        const file = fileInput.files[0];
+        if (!file) {
+            setStatus("Please select a PDF file first.", true);
+            return;
+        }
+        
+        setStatus("Parsing PDF... Please wait.");
+        
+        try {
+            const fileBuffer = await file.arrayBuffer();
+            const rawText = await extractTextFromPDF(fileBuffer);
+            
+            // Parse the extracted text
+            const parsed = parseShippingLabel(rawText);
+            extractedData = parsed;
+            
+            // Show preview with actual extracted data
+            outputPre.innerHTML = `
+╔═══════════════════════════════════════╗
+║         SHIPPING LABEL DATA           ║
+╠═══════════════════════════════════════╣
+║ TRACKING ID: ${(parsed.trackingId || 'N/A').padEnd(30)}║
+║ BARCODE:     ${(parsed.barcodeValue || 'N/A').padEnd(30)}║
+║ SENDER:      ${(parsed.sender || 'N/A').substring(0, 30).padEnd(30)}║
+║ RECEIVER:    ${(parsed.receiver || 'N/A').substring(0, 30).padEnd(30)}║
+╠═══════════════════════════════════════╣
+║ PRODUCTS:                              ║
+${parsed.products.map(p => `║   • ${p.substring(0, 38).padEnd(38)}║`).join('\n')}
+╚═══════════════════════════════════════╝
+            `;
+            
+            setStatus(`✅ Extracted: ${parsed.trackingId || 'No ID found'} | ${parsed.products.length} product(s)`);
+            printBtn.disabled = false;
+            
+        } catch (error) {
+            console.error("Extraction error:", error);
+            setStatus("Failed to parse PDF: " + error.message, true);
+            outputPre.innerHTML = "Error: " + error.message;
+        }
+    };
+
+    // Print button handler - connects and prints
+    printBtn.onclick = async () => {
+        if (!extractedData.trackingId || extractedData.trackingId === "Not found") {
+            setStatus("No label data. Please extract from PDF first.", true);
+            return;
+        }
+        
+        setStatus("Looking for Bluetooth printer... Select your printer when prompted.");
+        
+        try {
+            // Request Bluetooth device
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+            });
+            
+            setStatus(`Connecting to ${bluetoothDevice.name}...`);
+            
+            const server = await bluetoothDevice.gatt.connect();
+            const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+            
+            // Try to get the write characteristic
+            let characteristic = null;
+            try {
+                characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+            } catch (e) {
+                // Try alternative characteristic UUID
+                const chars = await service.getCharacteristics();
+                for (const char of chars) {
+                    if (char.properties.write) {
+                        characteristic = char;
+                        break;
+                    }
+                }
+            }
+            
+            if (!characteristic) {
+                throw new Error("No write characteristic found on printer");
+            }
+            
+            bluetoothCharacteristic = characteristic;
+            
+            setStatus("Sending print data...");
+            
+            // Build and send print data
+            const printData = buildPrintData(extractedData);
+            await sendToPrinter(printData);
+            
+            setStatus("✅ Label printed successfully!");
+            
+            // Disconnect
+            setTimeout(() => {
+                if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                    bluetoothDevice.gatt.disconnect();
+                }
+            }, 1000);
+            
+        } catch (error) {
+            console.error("Print error:", error);
+            setStatus(`❌ Failed: ${error.message}. Make sure printer is ON and not connected to other apps.`, true);
+        }
+    };
+    
+    // Check Web Bluetooth support
+    if (!navigator.bluetooth) {
+        setStatus("⚠️ Your browser doesn't support Web Bluetooth. Please use Chrome on Android.", true);
+        printBtn.disabled = true;
+    } else {
+        setStatus("✅ Ready. Upload your shipping label PDF.");
+    }
+</script>
+</body>
+</html>
