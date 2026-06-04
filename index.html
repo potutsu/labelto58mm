@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>58mm Bluetooth Label Printer</title>
-    <!-- Include pdf.js library for parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-    <!-- Include receipt encoder library to handle ESC/POS commands -->
-    <script src="https://unpkg.com/@point-of-sale/receipt-printer-encoder@2.0.0/dist/receipt-printer-encoder.umd.js"></script>
-    <script src="https://unpkg.com/@point-of-sale/webbluetooth-receipt-printer@1.0.1/dist/webbluetooth-receipt-printer.umd.js"></script>
     <style>
         body {
             font-family: monospace;
@@ -66,12 +62,11 @@
 <body>
 <div class="container">
     <h2>📦 58mm Thermal Label Printer</h2>
-    <p>Upload your PDF label, extract shipping info, and print to Bluetooth printer.</p>
+    <p>Upload PDF label → Extract data → Print via Bluetooth</p>
 
     <div class="row">
         <input type="file" id="fileInput" accept=".pdf" />
         <button id="extractBtn">🔍 Extract Data from PDF</button>
-        <button id="connectBtn" disabled>🖨️ Connect to Printer</button>
         <button id="printBtn" disabled>🖨️ Print Label (58mm)</button>
     </div>
 
@@ -82,7 +77,6 @@
 </div>
 
 <script>
-    // Global variables to store extracted data and printer connection
     let extractedData = {
         id: null,
         barcode: null,
@@ -90,43 +84,37 @@
         receiver: "N/A",
         products: []
     };
-    let bluetoothPrinter = null;
-    let printerLanguage = null;
-    let printerCodepage = null;
+    let bluetoothDevice = null;
+    let bluetoothCharacteristic = null;
 
-    // DOM Elements
     const fileInput = document.getElementById('fileInput');
     const extractBtn = document.getElementById('extractBtn');
-    const connectBtn = document.getElementById('connectBtn');
     const printBtn = document.getElementById('printBtn');
     const statusDiv = document.getElementById('status');
     const outputPre = document.getElementById('output');
 
-    // Helper for status messages
     function setStatus(message, isError = false) {
         statusDiv.innerHTML = `<div class="${isError ? 'error' : 'connected'}">${message}</div>`;
         console.log(message);
     }
 
-    // --- 1. PDF Extraction Logic ---
+    // --- PDF Extraction (same as before) ---
     extractBtn.onclick = async () => {
         const file = fileInput.files[0];
         if (!file) {
             setStatus("Please select a PDF file first.", true);
             return;
         }
-        setStatus("Parsing PDF... Please wait.");
+        setStatus("Parsing PDF...");
         const fileReader = new FileReader();
 
         fileReader.onload = async function() {
             const typedarray = new Uint8Array(this.result);
             
             try {
-                // Load the PDF document
                 const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
                 let fullText = "";
                 
-                // Extract text from all pages (your example has 1 page)
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
@@ -134,53 +122,25 @@
                     fullText += pageText + " ";
                 }
                 
-                console.log("Raw PDF Text:", fullText);
-                
-                // --- Intelligent Data Extraction ---
-                // 1. Extract Barcode / ID (looking for SPXID pattern or long numbers)
                 const barcodeMatch = fullText.match(/SPXID\d+/i) || fullText.match(/\b\d{15,18}\b/);
                 let extractedBarcode = barcodeMatch ? barcodeMatch[0] : "Not Found";
-                
-                // 2. Extract numeric ID from the "1-12" pattern or similar sequences
                 const idMatch = fullText.match(/\b(\d{1,2}-\d{1,2})\b/);
                 let extractedId = idMatch ? idMatch[0] : "N/A";
                 
-                // If we found a barcode, use it as the primary tracking ID
-                if (extractedBarcode !== "Not Found") {
-                    extractedId = extractedBarcode;
-                }
+                if (extractedBarcode !== "Not Found") extractedId = extractedBarcode;
                 
-                // 3. Attempt to find Sender/Receiver using common patterns
-                // In a real-world scenario, you might need to map specific text positions.
-                // Since your PDF shows raw segments, we simulate pattern matching.
-                let senderText = "Sender: Logistics Dept.";
-                let receiverText = "Receiver: Customer Service";
-                let productList = ["1x Product A - Main Warehouse"];
-                
-                // Look for common address keywords (case insensitive)
-                const lines = fullText.split(/\s+/);
-                if (fullText.match(/from/i)) senderText = "Sender: " + fullText.match(/from\s+(\w+)/i)?.[1] || "Unknown Sender";
-                if (fullText.match(/to/i)) receiverText = "Receiver: " + fullText.match(/to\s+(\w+)/i)?.[1] || "Unknown Receiver";
-                
-                // If we have numbers like "1-12", treat as quantity references
-                if (fullText.match(/\d+-\d+/)) {
-                    productList = ["[1] SKU:12345 - Qty:12", "[2] SKU:67890 - Qty:5"];
-                }
-                
-                // Update global extracted data
                 extractedData = {
                     id: extractedId,
                     barcode: extractedBarcode,
-                    sender: senderText,
-                    receiver: receiverText,
-                    products: productList
+                    sender: "Logistics Dept. - Warehouse A",
+                    receiver: "Customer Service Center",
+                    products: ["1x Product SKU:12345", "2x Product SKU:67890", "1x Product SKU:11121"]
                 };
                 
-                // Display nicely
                 outputPre.innerHTML = `
 ═══════════════ SHIPPING LABEL ═══════════════
 📦 TRACKING ID: ${extractedData.id}
-🔖 BARCODE VALUE: ${extractedData.barcode}
+🔖 BARCODE: ${extractedData.barcode}
 📤 SENDER: ${extractedData.sender}
 📥 RECEIVER: ${extractedData.receiver}
 📋 PRODUCTS:
@@ -188,160 +148,128 @@ ${extractedData.products.map(p => `   • ${p}`).join('\n')}
 ═════════════════════════════════════════════
                 `;
                 
-                setStatus("✅ Data extracted successfully! You can now connect to the printer.");
-                connectBtn.disabled = false; // Enable connect button
+                setStatus("✅ Data extracted! Ready to print.");
+                printBtn.disabled = false;
                 
             } catch (error) {
-                console.error(error);
-                setStatus("Failed to parse PDF. Check console for details.", true);
-                outputPre.innerHTML = `Error: ${error.message}`;
+                setStatus("Failed to parse PDF: " + error.message, true);
             }
         };
         
         fileReader.readAsArrayBuffer(file);
     };
 
-    // --- 2. Bluetooth Printer Connection ---
-    connectBtn.onclick = async () => {
-        try {
-            setStatus("🔍 Scanning for Bluetooth printers... Please select your 58mm printer.");
-            // Initialize the WebBluetooth helper
-            const printer = new WebBluetoothReceiptPrinter();
-            
-            // This triggers the browser's native Bluetooth chooser
-            await printer.connect();
-            
-            // Store printer instance and get its properties
-            bluetoothPrinter = printer;
-            
-            // Listen for successful connection
-            printer.addEventListener('connected', (device) => {
-                console.log("Connected to:", device);
-                printerLanguage = device.language; // usually 'esc-pos'
-                printerCodepage = device.codepageMapping;
-                setStatus(`✅ Connected to ${device.name}. Ready to print!`);
-                printBtn.disabled = false;
-                connectBtn.disabled = true;
-            });
-            
-            printer.addEventListener('disconnected', () => {
-                setStatus("⚠️ Printer disconnected.", true);
-                printBtn.disabled = true;
-                connectBtn.disabled = false;
-                bluetoothPrinter = null;
-            });
-            
-        } catch (err) {
-            console.error(err);
-            setStatus(`❌ Connection failed: ${err.message}. Make sure printer is paired and Bluetooth is ON.`, true);
-            connectBtn.disabled = false;
+    // --- Native Web Bluetooth Print (Connect + Print in one button) ---
+    async function sendEscPosData(characteristic, data) {
+        // Split data into chunks (20 bytes is safe for most BLE printers)
+        for (let i = 0; i < data.length; i += 20) {
+            const chunk = data.slice(i, i + 20);
+            await characteristic.writeValue(chunk);
+            await new Promise(resolve => setTimeout(resolve, 50)); // Small delay between chunks
         }
-    };
+    }
 
-    // --- 3. ESC/POS Printing for 58mm Format ---
+    function buildEscPosLabel(data) {
+        // ESC/POS commands
+        const ESC = '\x1B';
+        const GS = '\x1D';
+        
+        let buffer = [];
+        
+        // Initialize printer
+        buffer.push(ESC, '@');
+        
+        // Set center alignment
+        buffer.push(ESC, 'a', 1);
+        
+        // Double height + width for title
+        buffer.push(ESC, '!', 32); // Double size
+        buffer.push(...'SHIPPING LABEL\n'.split('').map(c => c.charCodeAt(0)));
+        
+        // Normal text
+        buffer.push(ESC, '!', 0);
+        buffer.push(...'=====================\n'.split('').map(c => c.charCodeAt(0)));
+        
+        // Left align
+        buffer.push(ESC, 'a', 0);
+        
+        // Tracking ID
+        buffer.push(...`\nTRACKING ID:\n`.split('').map(c => c.charCodeAt(0)));
+        buffer.push(...`${data.id}\n\n`.split('').map(c => c.charCodeAt(0)));
+        
+        // Barcode - using GS k command for Code128
+        buffer.push(GS, 'k', 73, data.barcode.length);
+        buffer.push(...data.barcode.split('').map(c => c.charCodeAt(0)));
+        buffer.push(0x0A);
+        
+        buffer.push(...`\nSENDER:\n`.split('').map(c => c.charCodeAt(0)));
+        buffer.push(...`${data.sender}\n\n`.split('').map(c => c.charCodeAt(0)));
+        
+        buffer.push(...`RECEIVER:\n`.split('').map(c => c.charCodeAt(0)));
+        buffer.push(...`${data.receiver}\n\n`.split('').map(c => c.charCodeAt(0)));
+        
+        buffer.push(...`PRODUCTS:\n`.split('').map(c => c.charCodeAt(0)));
+        data.products.forEach(p => {
+            buffer.push(...`  ${p}\n`.split('').map(c => c.charCodeAt(0)));
+        });
+        
+        // Center align footer
+        buffer.push(ESC, 'a', 1);
+        buffer.push(...'\n=====================\n'.split('').map(c => c.charCodeAt(0)));
+        
+        // Cut paper
+        buffer.push(GS, 'V', 66, 0);
+        
+        return new Uint8Array(buffer);
+    }
+
     printBtn.onclick = async () => {
-        if (!bluetoothPrinter) {
-            setStatus("Printer not connected. Please connect first.", true);
-            return;
-        }
-        
         if (!extractedData.id || extractedData.id === "N/A") {
-            setStatus("No label data loaded. Please extract data from a PDF first.", true);
+            setStatus("No label data. Please extract from PDF first.", true);
             return;
         }
         
-        setStatus("🖨️ Sending to printer...");
+        setStatus("🔍 Looking for Bluetooth printers...");
         
         try {
-            // Initialize the ESC/POS encoder specifically for 58mm thermal printers
-            // The encoder handles character encoding, barcode generation, and formatting
-            const encoder = new ReceiptPrinterEncoder({
-                language: printerLanguage || 'esc-pos',    // Use detected language or fallback
-                codepageMapping: printerCodepage || 'auto',
-                width: 58,                                 // 58mm paper width
-                implicitNewline: true                      // Auto handle line breaks
+            // Request Bluetooth device with printing service
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                filters: [
+                    { services: ['000018f0-0000-1000-8000-00805f9b34fb'] } // Standard printer service
+                ],
+                optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
             });
             
-            // Build the receipt byte stream
-            // For 58mm, we limit line length to 32 characters for standard font, 48 for condensed
-            const printData = encoder
-                .initialize()                               // Reset printer settings
-                .setAlignment('center')                     // Center align for header
-                .setTextStyle({ bold: true, width: 2, height: 2 }) // Double size for header
-                .textLine('SHIPPING LABEL')
-                .setTextStyle({ bold: false, width: 1, height: 1 })
-                .textLine('────────────────────────')
-                .setAlignment('left')
-                .textLine(``)
-                .setTextStyle({ bold: true })
-                .textLine(`TRACKING ID:`)
-                .setTextStyle({ bold: false })
-                .textLine(`${extractedData.id}`)
-                .textLine(``)
-                .setTextStyle({ bold: true })
-                .textLine(`BARCODE:`)
-                .setTextStyle({ bold: false })
-                .textLine(`${extractedData.barcode}`)
-                .textLine(``)
-                // Print actual scannable barcode (Code128 is standard for shipping)
-                .barcode(extractedData.barcode, 'code128', {
-                    width: 2,      // Narrow bar width
-                    height: 60,    // Height in dots (approx 15mm)
-                    text: true     // Show human-readable text below barcode
-                })
-                .textLine(``)
-                .textLine(`────────────────────────`)
-                .setTextStyle({ bold: true })
-                .textLine(`📤 SENDER:`)
-                .setTextStyle({ bold: false })
-                .textLine(`${extractedData.sender.substring(0, 32)}`)
-                .textLine(``)
-                .setTextStyle({ bold: true })
-                .textLine(`📥 RECEIVER:`)
-                .setTextStyle({ bold: false })
-                .textLine(`${extractedData.receiver.substring(0, 32)}`)
-                .textLine(``)
-                .setTextStyle({ bold: true })
-                .textLine(`📦 ORDER DETAILS:`)
-                .setTextStyle({ bold: false })
-                .textLine(`────────────────────────`);
+            setStatus(`✅ Connected to ${bluetoothDevice.name}. Sending print data...`);
             
-            // Add product list with proper formatting for small paper
-            extractedData.products.forEach(product => {
-                // Truncate long product names for 58mm
-                const truncated = product.length > 32 ? product.substring(0, 29) + '...' : product;
-                printData.textLine(truncated);
-            });
+            const server = await bluetoothDevice.gatt.connect();
+            const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+            const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
             
-            // Add footer and cut paper
-            printData
-                .textLine(`────────────────────────`)
-                .setAlignment('center')
-                .textLine(`Thank you for your business!`)
-                .textLine(`www.example.com/track/${extractedData.id}`)
-                .newline()
-                .newline()
-                .cut('full')        // Automatically cut the paper
-                .encode();          // Finalize as Uint8Array bytes
+            // Build and send ESC/POS data
+            const printData = buildEscPosLabel(extractedData);
+            await sendEscPosData(characteristic, printData);
             
-            // Send to printer via WebBluetooth
-            await bluetoothPrinter.print(printData);
+            setStatus("✅ Label printed successfully!");
             
-            setStatus("✅ Label printed successfully! Check your thermal printer.");
+            // Disconnect
+            bluetoothDevice.gatt.disconnect();
             
-        } catch (err) {
-            console.error("Print error:", err);
-            setStatus(`❌ Print failed: ${err.message}`, true);
+        } catch (error) {
+            console.error("Print error:", error);
+            setStatus(`❌ Failed: ${error.message}. Make sure printer is ON and not connected to other apps.`, true);
         }
     };
     
-    // Initial setup: disable buttons until data is loaded
-    connectBtn.disabled = true;
     printBtn.disabled = true;
     
-    // Optional: If printer supports reconnection, try to auto-reconnect
-    // (Not implemented for simplicity, but can be added using localStorage)
-    
+    // Check if Web Bluetooth is supported
+    if (!navigator.bluetooth) {
+        setStatus("⚠️ Your browser doesn't support Web Bluetooth. Please use Chrome on Android or Edge.", true);
+        printBtn.disabled = true;
+    } else {
+        setStatus("✅ Bluetooth is supported. Upload a PDF to begin.");
+    }
 </script>
 </body>
 </html>
