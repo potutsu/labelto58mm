@@ -498,12 +498,6 @@ function getLogoCanvas(img) {
   c.height = img.height;
   const cx = c.getContext('2d');
   cx.drawImage(img, 0, 0);
-  const imageData = cx.getImageData(0, 0, c.width, c.height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) data[i+3] = 0;
-  }
-  cx.putImageData(imageData, 0, 0);
   return c;
 }
 
